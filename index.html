@@ -167,6 +167,40 @@ td{padding:7px 10px;}
   font-size:11px;font-weight:700;cursor:pointer;color:#fff;}
 /* 2026 indicator strip */
 .yr-indicator{height:3px;background:linear-gradient(90deg,#e63946,#f59e0b,#10b981);transition:opacity .3s;}
+
+/* ── DATE RANGE FILTER ── */
+.date-range-bar{
+  background:#fff;border-bottom:1px solid #eee;
+  padding:8px 24px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  position:sticky;top:49px;z-index:49;box-shadow:0 1px 4px rgba(0,0,0,.04);
+}
+.drb-label{font-size:9px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
+.preset-btns{display:flex;gap:4px;flex-wrap:wrap;}
+.preset-btn{
+  padding:4px 11px;border-radius:12px;border:1.5px solid #e8e8e8;
+  background:#fff;font-size:11px;font-weight:600;cursor:pointer;
+  color:#888;transition:all .15s;white-space:nowrap;
+}
+.preset-btn:hover{border-color:#e63946;color:#e63946;}
+.preset-btn.active{background:#e63946;color:#fff;border-color:#e63946;box-shadow:0 2px 6px rgba(230,57,70,.25);}
+.drb-sep{width:1px;height:20px;background:#eee;margin:0 4px;flex-shrink:0;}
+.drb-range-info{
+  font-size:10px;font-weight:600;color:#3b82f6;
+  background:#eff6ff;border:1px solid #bfdbfe;
+  border-radius:8px;padding:3px 10px;white-space:nowrap;
+}
+.drb-filter-note{font-size:10px;color:#aaa;margin-left:4px;font-style:italic;}
+.drb-reset{
+  padding:4px 11px;border-radius:12px;border:1.5px solid #e63946;
+  background:#fff;font-size:11px;font-weight:600;cursor:pointer;
+  color:#e63946;margin-left:auto;transition:all .15s;
+}
+.drb-reset:hover{background:#e63946;color:#fff;}
+/* KPI delta badge */
+.kpi-delta{font-size:9px;margin-top:3px;font-weight:600;}
+.kpi-delta.up{color:#10b981;}.kpi-delta.down{color:#e63946;}.kpi-delta.na{color:#bbb;}
+/* filtered overlay on charts */
+.chart-filter-note{font-size:9px;color:#bbb;font-style:italic;margin-bottom:6px;}
 </style>
 </head>
 <body>
@@ -230,6 +264,27 @@ td{padding:7px 10px;}
     </div>
   </div>
   <div class="yr-indicator" id="yr-strip"></div>
+  <div class="date-range-bar" id="date-range-bar">
+    <span class="drb-label">Period:</span>
+    <div class="preset-btns">
+      <button class="preset-btn active" data-preset="all" onclick="setPreset('all')">Full Year</button>
+      <button class="preset-btn" data-preset="q1" onclick="setPreset('q1')">Q1 (Jan–Mar)</button>
+      <button class="preset-btn" data-preset="q2" onclick="setPreset('q2')">Q2 (Apr–Jun)</button>
+      <button class="preset-btn" data-preset="q3" onclick="setPreset('q3')">Q3 (Jul–Sep)</button>
+      <button class="preset-btn" data-preset="q4" onclick="setPreset('q4')">Q4 (Oct–Dec)</button>
+      <button class="preset-btn" data-preset="h1" onclick="setPreset('h1')">H1 (Jan–Jun)</button>
+      <button class="preset-btn" data-preset="h2" onclick="setPreset('h2')">H2 (Jul–Dec)</button>
+    </div>
+    <span class="drb-sep"></span>
+    <span class="drb-label">Custom:</span>
+    <select id="drb-from" onchange="setCustomRange()" style="padding:4px 8px;border:1.5px solid #e8e8e8;border-radius:6px;font-size:11px;outline:none;background:#fff;"></select>
+    <span style="font-size:11px;color:#bbb;">→</span>
+    <select id="drb-to" onchange="setCustomRange()" style="padding:4px 8px;border:1.5px solid #e8e8e8;border-radius:6px;font-size:11px;outline:none;background:#fff;"></select>
+    <span class="drb-sep"></span>
+    <span class="drb-range-info" id="drb-range-info">Jan–Dec 2025</span>
+    <span class="drb-filter-note" id="drb-filter-note">Charts reflect selected period</span>
+    <button class="drb-reset" onclick="setPreset('all')">Reset</button>
+  </div>
   <div class="month-filter-bar" id="month-filter-bar" style="display:none;">
     <label>Filter by month:</label>
     <button class="month-all-btn" id="mth-all" onclick="setMonth('all')">All</button>
@@ -1478,5 +1533,271 @@ setTimeout(function(){
 },300);
 
 // 2026 nav hooks handled in main nav handler
+
+
+// ═══════════════════════════════════════════════
+// DATE RANGE FILTER ENGINE
+// ═══════════════════════════════════════════════
+
+// Month order maps
+var MONTH_ORDER_25 = ['Jan-25','Feb-25','Mar-25','Apr-25','May-25','Jun-25',
+                      'Jul-25','Aug-25','Sep-25','Oct-25','Nov-25','Dec-25'];
+var MONTH_ORDER_26 = ['Jan-26','Feb-26','Mar-26','Apr-26','May-26','Jun-26',
+                      'Jul-26','Aug-26','Sep-26','Oct-26','Nov-26','Dec-26'];
+var MONTH_NAMES_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Preset definitions (month indices 0-11)
+var PRESETS = {
+  all: {label:'Full Year',    from:0, to:11},
+  q1:  {label:'Q1 Jan–Mar',   from:0, to:2},
+  q2:  {label:'Q2 Apr–Jun',   from:3, to:5},
+  q3:  {label:'Q3 Jul–Sep',   from:6, to:8},
+  q4:  {label:'Q4 Oct–Dec',   from:9, to:11},
+  h1:  {label:'H1 Jan–Jun',   from:0, to:5},
+  h2:  {label:'H2 Jul–Dec',   from:6, to:11},
+};
+
+var activePreset = 'all';
+var activeFromIdx = 0;
+var activeToIdx = 11;
+
+// Build the month dropdowns
+function buildDateDropdowns() {
+  var order = activeYear===2025 ? MONTH_ORDER_25 : MONTH_ORDER_26;
+  var fromSel = document.getElementById('drb-from');
+  var toSel   = document.getElementById('drb-to');
+  fromSel.innerHTML = ''; toSel.innerHTML = '';
+  order.forEach(function(m, i) {
+    var o1 = document.createElement('option'); o1.value=i; o1.textContent=m; fromSel.appendChild(o1);
+    var o2 = document.createElement('option'); o2.value=i; o2.textContent=m; toSel.appendChild(o2);
+  });
+  fromSel.value = activeFromIdx;
+  toSel.value   = activeToIdx;
+}
+
+function setPreset(preset) {
+  activePreset = preset;
+  var p = PRESETS[preset] || PRESETS.all;
+  activeFromIdx = p.from;
+  activeToIdx   = p.to;
+  document.querySelectorAll('.preset-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.preset===preset);
+  });
+  buildDateDropdowns();
+  updateRangeInfo();
+  refreshCurrentPage();
+}
+
+function setCustomRange() {
+  var f = parseInt(document.getElementById('drb-from').value);
+  var t = parseInt(document.getElementById('drb-to').value);
+  if(t < f) t = f;
+  activeFromIdx = f; activeToIdx = t;
+  activePreset = 'custom';
+  document.querySelectorAll('.preset-btn').forEach(function(b){b.classList.remove('active');});
+  document.getElementById('drb-to').value = t;
+  updateRangeInfo();
+  refreshCurrentPage();
+}
+
+function updateRangeInfo() {
+  var order = activeYear===2025 ? MONTH_ORDER_25 : MONTH_ORDER_26;
+  var from = order[activeFromIdx] || order[0];
+  var to   = order[Math.min(activeToIdx, order.length-1)] || order[order.length-1];
+  var label = from===to ? from : from + ' → ' + to;
+  document.getElementById('drb-range-info').textContent = label;
+}
+
+// Get filtered monthly data for active year
+function getFilteredMonthly() {
+  var mdata = activeYear===2025 ? D25.monthly_full : D26.monthly;
+  return mdata.filter(function(r, i){ return i>=activeFromIdx && i<=activeToIdx; });
+}
+
+// Compute KPIs from filtered months
+function getFilteredKpis() {
+  var months = getFilteredMonthly();
+  var rev=0,nts=0,rms=0,bk=0;
+  months.forEach(function(m){rev+=m.Revenue;nts+=m.Nights;rms+=m.Rooms;bk+=m.Bookings;});
+  var D = activeYear===2025 ? D25 : D26;
+  return {revenue:rev, nights:nts, rooms:rms, bookings:bk,
+          hotels:D.kpis.hotels, cities:D.kpis.cities};
+}
+
+// Get short month labels for charts
+function getFilteredMonthLabels() {
+  return getFilteredMonthly().map(function(r){
+    return r['Travel Month'].replace('-25','').replace('-26','');
+  });
+}
+
+// Refresh whichever page is currently active
+function refreshCurrentPage() {
+  buildDateDropdowns();
+  updateRangeInfo();
+  var pg = (document.querySelector('.ni.on')||{}).dataset||{};
+  var page = pg.page || 'overview';
+  if(activeYear===2025) {
+    if(page==='overview')       initOverview25();
+    else if(page==='bysource')  initSource25();
+    else if(page==='monthly')   initMonthly25();
+    else if(page==='bycity')    { cityPage=1; renderCity(); }
+    else if(page==='hoteldir')  { dirPage=1; renderDir(); }
+    else if(page==='bestsellers') initBestSellers();
+    else if(page==='nightscity')  renderNightsCity();
+    else if(page==='bytype')    initHType();
+    else if(page==='bychain')   initChain();
+    else if(page==='targets')   { tgtPage=1; renderTargets(); }
+    else if(page==='zerodirect'){ zdPage=1; renderZeroDirect(); }
+    else if(page==='bysupplier'){ bsPage=1; renderBS(); }
+  } else {
+    if(page==='2026-overview')    init2026Overview();
+    else if(page==='2026-bysource') init2026Source();
+    else if(page==='2026-monthly')  init2026Monthly();
+    else if(page==='2026-bycity')   renderCity26();
+    else if(page==='2026-hoteldir') renderDir26();
+  }
+}
+
+// ── Wrap 2025 initOverview to use filtered data ──
+function initOverview25() {
+  var k = getFilteredKpis();
+  document.getElementById('kv-rev').textContent  = f$(k.revenue);
+  document.getElementById('kv-nts').textContent  = fN(k.nights);
+  document.getElementById('kv-rms').textContent  = fN(k.rooms);
+  document.getElementById('kv-bk').textContent   = fN(k.bookings);
+  document.getElementById('kv-ht').textContent   = fN(k.hotels);
+  document.getElementById('kv-ci').textContent   = k.cities;
+
+  var src = D25.by_src;
+  mkChart('c1','doughnut',src.map(function(r){return r.Source_Type;}),
+    [{data:src.map(function(r){return r.Revenue;}),backgroundColor:['#3b82f6','#10b981'],borderWidth:3,borderColor:'#fff',hoverOffset:8}],
+    {noScale:true,ttl:function(ctx){return ' '+ctx.label+': '+f$(ctx.raw);}});
+
+  var mf = getFilteredMonthly(); var ml = getFilteredMonthLabels();
+  mkChart('c2','bar',ml,
+    [{data:mf.map(function(r){return r.Revenue;}),backgroundColor:'#e63946',borderRadius:4,label:'Revenue'}],
+    {leg:false,yf:fK,ttl:function(ctx){return ' '+f$(ctx.raw);}});
+
+  var tc=D25.by_city.slice(0,12);
+  mkChart('c3','bar',tc.map(function(r){return r.City;}),
+    [{data:tc.map(function(r){return r.Revenue;}),backgroundColor:PAL,borderRadius:3,label:'Revenue'}],
+    {leg:false,yf:fK,ttl:function(ctx){return ' '+f$(tc[ctx.dataIndex].Revenue);}});
+
+  var st=D25.by_star.slice().sort(function(a,b){return a.Star-b.Star;});
+  mkChart('c4','bar',st.map(function(r){return r.Star+'&#9733;';}),
+    [{data:st.map(function(r){return r.Revenue;}),backgroundColor:['#94a3b8','#06b6d4','#3b82f6','#6366f1','#8b5cf6'],borderRadius:3,label:'Revenue'}],
+    {leg:false,yf:fK,ttl:function(ctx){return ' '+f$(ctx.raw);}});
+
+  var tb=D25.by_bsrc.slice(0,20);
+  mkChart('c5','bar',tb.map(function(r){return trunc(r.Source_Name,20);}),
+    [{data:tb.map(function(r){return r.Revenue;}),label:'Revenue',
+      backgroundColor:tb.map(function(r){return r.Source_Type==='API'?'#3b82f6':'#10b981';}),borderRadius:3}],
+    {leg:false,yf:fK,ttl:function(ctx){return ' '+f$(tb[ctx.dataIndex].Revenue);}});
+}
+
+// ── Wrap 2025 initSource to use filtered monthly ──
+function initSource25() {
+  var src = D25.by_src;
+  var byT={}; src.forEach(function(r){byT[r.Source_Type]=r;});
+  var api=byT['API']||{Bookings:0,Revenue:0,Nights:0};
+  var dir=byT['Direct/Contracted']||{Bookings:0,Revenue:0,Nights:0};
+  document.getElementById('s-api-n').textContent=fN(api.Bookings);
+  document.getElementById('s-api-m').textContent=f$(api.Revenue)+' revenue  ·  '+fN(api.Nights)+' nights';
+  document.getElementById('s-dir-n').textContent=fN(dir.Bookings);
+  document.getElementById('s-dir-m').textContent=f$(dir.Revenue)+' revenue  ·  '+fN(dir.Nights)+' nights';
+
+  mkChart('c6','doughnut',src.map(function(r){return r.Source_Type;}),
+    [{data:src.map(function(r){return r.Bookings;}),backgroundColor:['#3b82f6','#10b981'],borderWidth:3,borderColor:'#fff',hoverOffset:8}],
+    {noScale:true,ttl:function(ctx){return ' '+ctx.label+': '+fN(ctx.raw)+' bookings';}});
+  mkChart('c7','doughnut',src.map(function(r){return r.Source_Type;}),
+    [{data:src.map(function(r){return r.Revenue;}),backgroundColor:['#3b82f6','#10b981'],borderWidth:3,borderColor:'#fff',hoverOffset:8}],
+    {noScale:true,ttl:function(ctx){return ' '+ctx.label+': '+f$(ctx.raw);}});
+
+  var apiS=D25.by_bsrc.filter(function(r){return r.Source_Type==='API';}).slice(0,8);
+  mkChart('c8','bar',apiS.map(function(r){return trunc(r.Source_Name.replace(' API',''),14);}),
+    [{data:apiS.map(function(r){return r.Revenue;}),backgroundColor:PAL,borderRadius:3,label:'Revenue'}],
+    {leg:false,yf:fK,ttl:function(ctx){return ' '+f$(apiS[ctx.dataIndex].Revenue);}});
+  mkChart('c9','bar',['API','Direct/Contracted'],
+    [{data:src.map(function(r){return r.Nights;}),backgroundColor:['#3b82f6','#10b981'],borderRadius:6,label:'Nights'}],
+    {leg:false,ttl:function(ctx){return ' '+fN(ctx.raw)+' nights';}});
+
+  var dirS=D25.by_bsrc.filter(function(r){return r.Source_Type==='Direct/Contracted';}).slice(0,8);
+  mkChart('c10','bar',dirS.map(function(r){return trunc(r.Source_Name,18);}),
+    [{data:dirS.map(function(r){return r.Revenue;}),backgroundColor:'#10b981',borderRadius:3,label:'Revenue'}],
+    {leg:false,yf:fK,ttl:function(ctx){return ' '+f$(dirS[ctx.dataIndex].Revenue);}});
+
+  var apiPct=api.Bookings/(api.Bookings+dir.Bookings);
+  var mf=getFilteredMonthly(); var ml=getFilteredMonthLabels();
+  mkChart('c11','bar',ml,
+    [{data:mf.map(function(r){return Math.round(r.Bookings*apiPct);}),label:'API',backgroundColor:'#3b82f6',borderRadius:2},
+     {data:mf.map(function(r){return Math.round(r.Bookings*(1-apiPct));}),label:'Direct',backgroundColor:'#10b981',borderRadius:2}],
+    {ttl:function(ctx){return ' '+fN(ctx.raw);}});
+}
+
+// ── Wrap initMonthly for 2025 to use filtered data ──
+function initMonthly25() {
+  var mf=getFilteredMonthly(); var ml=getFilteredMonthLabels();
+  mkChart('c20','bar',ml,[{data:mf.map(function(r){return r.Revenue;}),backgroundColor:'#e63946',borderRadius:4,label:'Revenue'}],{leg:false,yf:fK,ttl:function(ctx){return ' '+f$(ctx.raw);}});
+  mkChart('c21','bar',ml,[{data:mf.map(function(r){return r.Nights;}),backgroundColor:'#3b82f6',borderRadius:4,label:'Nights'}],{leg:false,ttl:function(ctx){return ' '+fN(ctx.raw)+' nights';}});
+  mkChart('c22','bar',ml,[{data:mf.map(function(r){return r.Rooms;}),backgroundColor:'#10b981',borderRadius:4,label:'Rooms'}],{leg:false,ttl:function(ctx){return ' '+fN(ctx.raw)+' rooms';}});
+  mkChart('c23','bar',ml,[{data:mf.map(function(r){return r.Bookings;}),backgroundColor:'#f59e0b',borderRadius:4,label:'Bookings'}],{leg:false,ttl:function(ctx){return ' '+fN(ctx.raw)+' bookings';}});
+  addMonthClick('c20','Revenue'); addMonthClick('c21','Room Nights');
+  addMonthClick('c22','Rooms Booked'); addMonthClick('c23','Bookings');
+  var html=''; mf.forEach(function(r){
+    html+='<tr><td style="font-weight:600;">'+r['Travel Month']+'</td>';
+    html+='<td>'+fN(r.Bookings)+'</td><td>'+fN(r.Rooms)+'</td><td>'+fN(r.Nights)+'</td>';
+    html+='<td style="font-weight:700;">'+f$(r.Revenue)+'</td>';
+    html+='<td>'+f$(r.Revenue/Math.max(r.Nights,1))+'</td>';
+    html+='<td>'+(r.Bookings>0?(r.Nights/r.Bookings).toFixed(1):'0')+'</td></tr>';
+  });
+  document.getElementById('mon-tb').innerHTML=html;
+}
+
+// ── Patch switchYear to rebuild dropdowns ──
+var _origSwitchYear = switchYear;
+switchYear = function(yr) {
+  _origSwitchYear(yr);
+  activePreset = 'all'; activeFromIdx=0; activeToIdx=11;
+  document.querySelectorAll('.preset-btn').forEach(function(b){
+    b.classList.toggle('active', b.dataset.preset==='all');
+  });
+  buildDateDropdowns();
+  updateRangeInfo();
+};
+
+// ── Patch nav to also refresh date bar ──
+var _origNavClicks = [];
+document.querySelectorAll('.ni').forEach(function(el){
+  el.addEventListener('click', function(){
+    setTimeout(function(){
+      buildDateDropdowns();
+      updateRangeInfo();
+    },10);
+  });
+});
+
+// ── Override init() to call initOverview25 ──
+var _origInit = init;
+init = function() {
+  _origInit();
+  buildDateDropdowns();
+  updateRangeInfo();
+  // Patch the 2025 overview/source/monthly to use our filtered wrappers
+  // These are called when nav is clicked
+};
+
+// Override the functions called by 2025 nav
+// The nav calls: initOverview, initSource, initMonthly (already defined)
+// We replace them with our filtered versions
+var initOverview = initOverview25;
+var initSource   = initSource25;
+var initMonthly  = initMonthly25;
+
+// ── Init date filter UI after page loads ──
+setTimeout(function(){
+  buildDateDropdowns();
+  updateRangeInfo();
+}, 500);
 
 </script></body></html>
