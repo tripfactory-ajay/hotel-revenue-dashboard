@@ -1299,6 +1299,8 @@ document.querySelectorAll('.ni').forEach(function(el){
     document.querySelectorAll('.page').forEach(function(p){p.classList.remove('on');});
     el.classList.add('on');
     var pg = el.dataset.page;
+    var yr = el.dataset.yr;
+    if(yr && yr !== YR) { YR = yr; buildDropdowns(); updateBadge(); }
     var pgEl = document.getElementById('pg-'+pg);
     if(pgEl) pgEl.classList.add('on');
     renderPage(pg);
